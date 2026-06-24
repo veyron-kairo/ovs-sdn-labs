@@ -1,10 +1,9 @@
 # OVS SDN Labs
 
-I'm a 2nd year B.Tech (AI/ML) student and I built these labs to teach myself how
-Open vSwitch and software-defined networking actually work. I'm applying for the LFX
-mentorship "DPU-Accelerated OVS Offload" (OPI project), and since I didn't have a
-networking background, I figured the best way to learn was to build everything myself
-and break it until it made sense.
+I built these labs to teach myself how Open vSwitch and software-defined networking
+actually work. I'm applying for the LFX mentorship "DPU-Accelerated OVS Offload" (OPI
+project), and since I didn't have a deep networking background, I figured the best way
+to learn was to build everything myself and break it until it made sense.
 
 All of this runs on an Ubuntu VM on my Mac (M4, using Lima). Every output and
 screenshot here is from my own machine.
@@ -130,4 +129,4 @@ On a normal Linux machine you can skip Lima and just run the scripts.
 - A small Go tool to read OVS state over OVSDB
 
 ---
-Sridhar Panigrahi, B.Tech AI/ML, Polaris School of Technology
+Shridhar Panigrahi, B.Tech AI/ML, Polaris School of Technology
