@@ -30,6 +30,8 @@ ns2 (10.0.0.2) --veth--+
 It worked: 4 packets, 0% loss, and the flow counter went up to n_packets=84. OVS also
 learned both MAC addresses in its fdb table. Script: `scripts/01-l2-switch.sh`
 
+![L2 switch](screenshots/01-l2-switch.png)
+
 ## Lab 2 - VLANs
 
 Added two more hosts and split all four into VLAN 100 and VLAN 200.
@@ -129,6 +131,8 @@ topology is defined in OVN's database (`ovn-nbctl show`) and OVN handles turning
 OVS flows. This is the same model OVN-Kubernetes uses to give pods networking across
 nodes and subnets. Script: `scripts/06-ovn-logical-network.sh`
 (needs OVN: `sudo apt-get install -y ovn-central ovn-host ovn-common`)
+
+![OVN logical switch and router](screenshots/06-ovn-logical-network.png)
 
 ## A look at all the bridges
 
