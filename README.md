@@ -1,118 +1,116 @@
-# OVS SDN Labs — hands-on Software-Defined Networking with Open vSwitch
+# OVS SDN Labs
 
-A set of self-built networking labs exploring **Open vSwitch (OVS)**, **VLANs**, **VXLAN overlays**, and **OpenFlow** programming on Linux — the foundations behind modern data-center networking and the [OPI](https://opiproject.org/) *DPU-Accelerated OVS Offload* work.
+I'm a 2nd year B.Tech (AI/ML) student and I built these labs to teach myself how
+Open vSwitch and software-defined networking actually work. I'm applying for the LFX
+mentorship "DPU-Accelerated OVS Offload" (OPI project), and since I didn't have a
+networking background, I figured the best way to learn was to build everything myself
+and break it until it made sense.
 
-> Built from scratch on an Ubuntu VM (Apple M4 Mac → Lima) as preparation for the
-> LFX Mentorship "DPU-Accelerated OVS Offload" under the OPI project.
-> Every result below is real output captured from these scripts.
+All of this runs on an Ubuntu VM on my Mac (M4, using Lima). Every output and
+screenshot here is from my own machine.
 
-## Why this exists
-The OVS datapath that these labs program in software is exactly what a **DPU**
-(Data Processing Unit, e.g. NVIDIA BlueField) offloads into hardware — freeing the
-host CPU and boosting throughput. To understand hardware offload, you first have to
-understand the software path. These labs build that understanding from the ground up.
+Setup I used:
+- Ubuntu 26.04, Open vSwitch 3.7.1, QEMU 10.2.1, libvirt 12.0.0
+- I use Linux network namespaces as fake "hosts" and wire them into OVS with veth pairs.
 
-## Environment
-- Ubuntu 26.04 LTS (aarch64) · Open vSwitch 3.7.1 · QEMU 10.2.1 · libvirt 12.0.0
-- Hosts are simulated with Linux **network namespaces** wired to OVS via veth pairs.
+The reason I picked these specific topics: the project is about offloading the OVS
+datapath onto a DPU (like a BlueField card) so the CPU doesn't have to do the packet
+forwarding. I figured I should first understand the software path before I can
+understand what gets offloaded, so that's what these labs cover.
 
----
+## Lab 1 - basic L2 switch
 
-## Lab 1 — L2 software switch (`scripts/01-l2-switch.sh`)
-Two isolated hosts on one OVS bridge, exchanging real traffic; OVS learns their MACs.
+Two hosts on one OVS bridge, pinging each other.
 
 ```
 ns1 (10.0.0.1) --veth--+
-                       ovsbr0  (Open vSwitch)
+                       ovsbr0
 ns2 (10.0.0.2) --veth--+
 ```
-**Result:** `4 packets transmitted, 4 received, 0% packet loss`, flow table counter
-rose to `n_packets=84`, and the MAC table learned both hosts.
-**Skills:** OVS bridges/ports, OpenFlow `NORMAL` action, MAC learning, L2 forwarding.
 
----
+It worked: 4 packets, 0% loss, and the flow counter went up to n_packets=84. OVS also
+learned both MAC addresses in its fdb table. Script: `scripts/01-l2-switch.sh`
 
-## Lab 2 — VLAN segmentation (`scripts/02-vlan.sh`)
-Four hosts on one bridge, split into VLAN 100 and VLAN 200.
+## Lab 2 - VLANs
 
-| Test | Hosts | VLANs | Result |
-|------|-------|-------|--------|
-| 1 | ns1 → ns3 | 100 → 100 | ✅ reachable |
-| 2 | ns1 → ns2 | 100 → 200 | ❌ **blocked** (same subnet!) |
-| 3 | ns2 → ns4 | 200 → 200 | ✅ reachable |
+Added two more hosts and split all four into VLAN 100 and VLAN 200.
 
-**Takeaway:** VLAN tags isolate L2 domains even when hosts share an IP subnet — the
-basis of multi-tenant isolation. **Skills:** 802.1Q VLAN tagging, access ports.
+- ns1 -> ns3 (both VLAN 100): works
+- ns1 -> ns2 (VLAN 100 vs 200, same subnet): blocked
+- ns2 -> ns4 (both VLAN 200): works
+
+The part I found cool is that ns1 and ns2 are on the same 10.0.0.0/24 subnet but still
+can't talk, purely because of the VLAN tag. Script: `scripts/02-vlan.sh`
 
 ![VLAN isolation](screenshots/02-vlan-isolation.png)
 
----
+## Lab 3 - VXLAN overlay
 
-## Lab 3 — VXLAN overlay tunnel (`scripts/03-vxlan.sh`)
-Two "physical servers" on an underlay (`172.16.0.0/24`) carry a virtual overlay
-(`192.168.99.0/24`) inside a VXLAN tunnel (VNI 42).
+Made two "servers" on an underlay network (172.16.0.0/24) and ran an overlay network
+(192.168.99.0/24) on top using a VXLAN tunnel.
 
-**Proof (tcpdump on the underlay while pinging the overlay):**
+While pinging the overlay, I ran tcpdump on the underlay to check it was actually being
+encapsulated:
+
 ```
 172.16.0.1.49940 > 172.16.0.2.4789: VXLAN, flags [I], vni 42
 172.16.0.2.37150 > 172.16.0.1.4789: VXLAN, flags [I], vni 42
 ```
-The overlay ICMP is encapsulated in **UDP/4789 VXLAN** — how every cloud carries
-tenant traffic across a shared physical network.
-**Skills:** VXLAN/Geneve overlays, underlay vs overlay, encapsulation, packet capture.
+
+So the ping is wrapped inside UDP port 4789. This is how clouds carry tenant traffic
+over a shared physical network. Script: `scripts/03-vxlan.sh`
 
 ![VXLAN overlay](screenshots/03-vxlan-overlay.png)
 
----
+## Lab 4 - OpenFlow rules
 
-## Lab 4 — OpenFlow programming (`scripts/04-openflow.sh`)
-A bridge in `secure` fail-mode (no default forwarding). Traffic only flows when I
-hand-write OpenFlow rules — then a higher-priority rule acts as a firewall.
+Put a bridge in secure mode so it does nothing by default, then wrote OpenFlow rules by
+hand to make traffic flow, then added a rule to drop ICMP like a firewall.
 
 ```
-1. No flows           -> ping BLOCKED (secure mode, nothing forwards)
-2. Add forwarding      (priority=10)  -> ping WORKS
-3. Add icmp drop       (priority=100) -> ping BLOCKED at the flow level
+no flows                      -> ping blocked
+add forwarding (priority 10)  -> ping works
+add icmp drop (priority 100)  -> ping blocked again
 ```
-**Gotcha I learned:** flows added without a priority default to `priority=32768`, so
-my first drop rule (`priority=100`) never matched. Lowering the forwarding rules to
-`priority=10` made the firewall work — a lesson in OpenFlow match precedence.
-**Skills:** OpenFlow flow programming, priorities, match/action, datapath control.
+
+This one took me a while. My first drop rule didn't work and I couldn't figure out why.
+Turns out flows without a priority default to 32768, which was higher than my forwarding
+rules, so the drop never matched. Once I set the forwarding rules to priority 10 it
+worked. Script: `scripts/04-openflow.sh`
 
 ![OpenFlow firewall](screenshots/04-openflow-firewall.png)
 
----
+## Lab 5 - Kubernetes pod networking
 
-## Lab 5 — Kubernetes pod networking (`scripts/05-k8s-pod-networking.sh`)
-A real single-node **k3s** cluster. Deploy pods, prove pod-to-pod connectivity, and
-reveal that the CNI uses the **same bridge + VXLAN tech** as Labs 1 and 3.
+Set up a small k3s cluster and deployed some pods to see how pod networking works.
 
 ```
-client pod (10.42.0.10) --curl--> web pod (10.42.0.9)   OK
-                        --curl--> web pod (10.42.0.11)  OK
-Service web (ClusterIP 10.43.128.88) --> load-balances across both web pods
+client pod -> web pod 10.42.0.9   ok
+client pod -> web pod 10.42.0.11  ok
+Service (10.43.128.88) load-balances across both web pods
 ```
-**The connection that matters:** Kubernetes' Flannel CNI created a Linux bridge
-`cni0` and a VXLAN device `flannel.1`:
+
+The thing that clicked for me: I checked the host interfaces and the CNI (Flannel) had
+made a Linux bridge (cni0) and a VXLAN device (flannel.1):
+
 ```
 flannel.1: vxlan id 1 local 192.168.5.15 dev eth0 dstport 8472
-cni0:      10.42.0.1/24   (pods attach here via veth — exactly like Lab 1)
+cni0:      10.42.0.1/24
 ```
-So **everything in Labs 1–3 is literally how Kubernetes networks pods.** Pod traffic
-to another node rides a VXLAN overlay (Lab 3); pods on a node share a bridge (Lab 1).
-**Skills:** Kubernetes pods/deployments/services, CNI, pod networking, ClusterIP.
 
-> Setup: `curl -sfL https://get.k3s.io | sh -`, then `sudo bash scripts/05-k8s-pod-networking.sh`
+So Kubernetes pod networking is basically the same stuff from labs 1 and 3 - pods on a
+node share a bridge, and traffic between nodes goes over a VXLAN overlay. That connected
+everything for me. Script: `scripts/05-k8s-pod-networking.sh`
+(needs k3s: `curl -sfL https://get.k3s.io | sh -`)
 
----
+## A look at all the bridges
 
-## A quick visual: all the virtual switches built
 ![ovs-vsctl show](screenshots/05-ovs-vsctl-show.png)
 
----
+## How to run these
 
-## Run it yourself
-On a Mac: `brew install lima && limactl start template://ubuntu-lts`, then inside:
+On a Mac: `brew install lima && limactl start template://ubuntu-lts`, then inside the VM:
+
 ```bash
 sudo apt-get update
 sudo apt-get install -y openvswitch-switch tcpdump iproute2
@@ -120,15 +118,16 @@ sudo bash scripts/01-l2-switch.sh
 sudo bash scripts/02-vlan.sh
 sudo bash scripts/03-vxlan.sh
 sudo bash scripts/04-openflow.sh
-sudo bash scripts/cleanup.sh   # tidy up
+sudo bash scripts/cleanup.sh
 ```
-On bare-metal Linux, skip Lima and run the scripts directly.
 
-## Roadmap (next labs)
-- [x] Kubernetes pod networking with a CNI (k3s + Flannel) — **Lab 5**
-- [ ] OVN-Kubernetes (OVS-based CNI) pod networking
-- [ ] Throughput & pps benchmarking through OVS (iperf3) + the DPU-offload story
-- [ ] A small Go tool that reads OVS state via OVSDB
+On a normal Linux machine you can skip Lima and just run the scripts.
+
+## Still want to try
+
+- OVN-Kubernetes (the OVS-based CNI, closest to what the mentorship works on)
+- Throughput testing with iperf3 and reading more about the DPU offload side
+- A small Go tool to read OVS state over OVSDB
 
 ---
-*Author: Sridhar Panigrahi · B.Tech (AI/ML), Polaris School of Technology*
+Sridhar Panigrahi, B.Tech AI/ML, Polaris School of Technology
