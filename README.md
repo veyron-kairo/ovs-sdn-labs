@@ -44,6 +44,8 @@ Four hosts on one bridge, split into VLAN 100 and VLAN 200.
 **Takeaway:** VLAN tags isolate L2 domains even when hosts share an IP subnet — the
 basis of multi-tenant isolation. **Skills:** 802.1Q VLAN tagging, access ports.
 
+![VLAN isolation](screenshots/02-vlan-isolation.png)
+
 ---
 
 ## Lab 3 — VXLAN overlay tunnel (`scripts/03-vxlan.sh`)
@@ -58,6 +60,8 @@ Two "physical servers" on an underlay (`172.16.0.0/24`) carry a virtual overlay
 The overlay ICMP is encapsulated in **UDP/4789 VXLAN** — how every cloud carries
 tenant traffic across a shared physical network.
 **Skills:** VXLAN/Geneve overlays, underlay vs overlay, encapsulation, packet capture.
+
+![VXLAN overlay](screenshots/03-vxlan-overlay.png)
 
 ---
 
@@ -75,6 +79,36 @@ my first drop rule (`priority=100`) never matched. Lowering the forwarding rules
 `priority=10` made the firewall work — a lesson in OpenFlow match precedence.
 **Skills:** OpenFlow flow programming, priorities, match/action, datapath control.
 
+![OpenFlow firewall](screenshots/04-openflow-firewall.png)
+
+---
+
+## Lab 5 — Kubernetes pod networking (`scripts/05-k8s-pod-networking.sh`)
+A real single-node **k3s** cluster. Deploy pods, prove pod-to-pod connectivity, and
+reveal that the CNI uses the **same bridge + VXLAN tech** as Labs 1 and 3.
+
+```
+client pod (10.42.0.10) --curl--> web pod (10.42.0.9)   OK
+                        --curl--> web pod (10.42.0.11)  OK
+Service web (ClusterIP 10.43.128.88) --> load-balances across both web pods
+```
+**The connection that matters:** Kubernetes' Flannel CNI created a Linux bridge
+`cni0` and a VXLAN device `flannel.1`:
+```
+flannel.1: vxlan id 1 local 192.168.5.15 dev eth0 dstport 8472
+cni0:      10.42.0.1/24   (pods attach here via veth — exactly like Lab 1)
+```
+So **everything in Labs 1–3 is literally how Kubernetes networks pods.** Pod traffic
+to another node rides a VXLAN overlay (Lab 3); pods on a node share a bridge (Lab 1).
+**Skills:** Kubernetes pods/deployments/services, CNI, pod networking, ClusterIP.
+
+> Setup: `curl -sfL https://get.k3s.io | sh -`, then `sudo bash scripts/05-k8s-pod-networking.sh`
+
+---
+
+## A quick visual: all the virtual switches built
+![ovs-vsctl show](screenshots/05-ovs-vsctl-show.png)
+
 ---
 
 ## Run it yourself
@@ -91,7 +125,8 @@ sudo bash scripts/cleanup.sh   # tidy up
 On bare-metal Linux, skip Lima and run the scripts directly.
 
 ## Roadmap (next labs)
-- [ ] Kubernetes pod networking with a CNI / OVN-Kubernetes
+- [x] Kubernetes pod networking with a CNI (k3s + Flannel) — **Lab 5**
+- [ ] OVN-Kubernetes (OVS-based CNI) pod networking
 - [ ] Throughput & pps benchmarking through OVS (iperf3) + the DPU-offload story
 - [ ] A small Go tool that reads OVS state via OVSDB
 
