@@ -102,6 +102,34 @@ node share a bridge, and traffic between nodes goes over a VXLAN overlay. That c
 everything for me. Script: `scripts/05-k8s-pod-networking.sh`
 (needs k3s: `curl -sfL https://get.k3s.io | sh -`)
 
+## Lab 6 - OVN logical networks
+
+This is the one closest to what the mentorship actually works on. OVN (Open Virtual
+Network) is the SDN system that sits on top of OVS and is what OVN-Kubernetes uses under
+the hood. Instead of configuring bridges directly, you describe the network you want -
+logical switches, logical routers, logical ports - in a database, and OVN programs OVS to
+make it real.
+
+I set my machine up as an OVN chassis, then:
+
+- Created a logical switch `ls1` with two ports and pinged across it. The switch only
+  exists in the OVN database, but the traffic is real.
+- Added a logical router `lr1` joining `ls1` (192.168.10.0/24) to a second logical switch
+  `ls2` (192.168.20.0/24), and pinged a host on one subnet from the other.
+
+```
+vm1 (192.168.10.1) --ls1--+
+                          lr1 (logical router)
+vm3 (192.168.20.1) --ls2--+
+```
+
+The cross-subnet ping worked and came back with ttl=63 instead of 64, which proves it
+actually went through the logical router and wasn't just on the same segment. The whole
+topology is defined in OVN's database (`ovn-nbctl show`) and OVN handles turning it into
+OVS flows. This is the same model OVN-Kubernetes uses to give pods networking across
+nodes and subnets. Script: `scripts/06-ovn-logical-network.sh`
+(needs OVN: `sudo apt-get install -y ovn-central ovn-host ovn-common`)
+
 ## A look at all the bridges
 
 ![ovs-vsctl show](screenshots/05-ovs-vsctl-show.png)
@@ -124,7 +152,7 @@ On a normal Linux machine you can skip Lima and just run the scripts.
 
 ## Still want to try
 
-- OVN-Kubernetes (the OVS-based CNI, closest to what the mentorship works on)
+- Full OVN-Kubernetes as a CNI in a real cluster (Lab 6 covers OVN itself)
 - Throughput testing with iperf3 and reading more about the DPU offload side
 - A small Go tool to read OVS state over OVSDB
 
